@@ -1,0 +1,46 @@
+{
+  "name": "notion",
+  "version": "1.0.0",
+  "description": "CLI and library for publishing LLM-generated wiki content to a Notion page.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx src/cli.ts",
+    "mcp": "tsx src/mcp/server.ts",
+    "test": "npm run test:unit",
+    "test:unit": "tsx --test test/config.test.ts test/diff.test.ts test/markdown.test.ts test/blocks.test.ts test/page.test.ts test/notion-to-markdown.test.ts test/sync-wiki.test.ts test/validate-wiki.test.ts test/mcp.test.ts",
+    "test:live": "tsx src/scripts/live-smoke.ts",
+    "test:live:setup": "tsx src/cli.ts ensure-test-page",
+    "verify": "npm run check && npm run test:unit && npm run test:live",
+    "validate": "tsx src/cli.ts validate",
+    "page-info": "tsx src/cli.ts page-info",
+    "dump-md": "tsx src/cli.ts dump-md",
+    "sync": "tsx scripts/sync-wiki.ts",
+    "validate-wiki": "tsx scripts/validate-wiki.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@notionhq/client": "^5.22.0",
+    "commander": "^14.0.3",
+    "dotenv": "^17.4.2",
+    "formdata-node": "^6.0.3",
+    "markdown-it": "^14.2.0",
+    "mime-types": "^3.0.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
+    "@types/mime-types": "^3.0.1",
+    "@types/node": "^25.9.1",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  }
+}
