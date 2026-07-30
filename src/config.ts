@@ -8,17 +8,22 @@ const UUID_DASHED_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const UUID_COMPACT_PATTERN = /^[0-9a-f]{32}$/i;
 
+const optionalNonEmptyString = z.preprocess(
+  (val) => (typeof val === "string" && val.trim() !== "" ? val : undefined),
+  z.string().optional(),
+);
+
 const envSchema = z.object({
-  NOTION_TOKEN: z.string().min(1, "NOTION_TOKEN is required."),
-  NOTION_PAGE_ID: z.string().min(1, "NOTION_PAGE_ID is required."),
-  NOTION_TEST_PAGE_ID: z.string().min(1).optional(),
+  NOTION_TOKEN: optionalNonEmptyString,
+  NOTION_PAGE_ID: optionalNonEmptyString,
+  NOTION_TEST_PAGE_ID: optionalNonEmptyString,
   NOTION_API_VERSION: z.string().default("2026-03-11"),
   WIKI_CONTENT_ROOT: z.string().optional(),
 });
 
 export type AppConfig = {
-  notionToken: string;
-  notionPageId: string;
+  notionToken?: string;
+  notionPageId?: string;
   notionTestPageId?: string;
   notionApiVersion: string;
   wikiContentRoot?: string;
@@ -72,11 +77,28 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
   return {
     notionToken: parsed.data.NOTION_TOKEN,
-    notionPageId: normalizeNotionId(parsed.data.NOTION_PAGE_ID),
+    notionPageId: parsed.data.NOTION_PAGE_ID
+      ? normalizeNotionId(parsed.data.NOTION_PAGE_ID)
+      : undefined,
     notionTestPageId: parsed.data.NOTION_TEST_PAGE_ID
       ? normalizeNotionId(parsed.data.NOTION_TEST_PAGE_ID, "NOTION_TEST_PAGE_ID")
       : undefined,
     notionApiVersion: parsed.data.NOTION_API_VERSION,
     wikiContentRoot: parsed.data.WIKI_CONTENT_ROOT,
   };
+}
+
+export function assertNotionCredentials(
+  config: AppConfig,
+): asserts config is AppConfig & { notionToken: string; notionPageId: string } {
+  if (!config.notionToken) {
+    throw new Error(
+      "NOTION_TOKEN is required. Set it as an environment variable or pass it as a tool argument.",
+    );
+  }
+  if (!config.notionPageId) {
+    throw new Error(
+      "NOTION_PAGE_ID is required. Set it as an environment variable or pass it as a tool argument.",
+    );
+  }
 }

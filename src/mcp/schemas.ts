@@ -10,6 +10,15 @@ export const optionalPageIdSchema = z.object({
   pageId: z.string().optional(),
 });
 
+export const optionalNotionTokenSchema = z.object({
+  notionToken: z.string().optional(),
+});
+
+export const optionalCredentialsSchema = z.object({
+  notionToken: z.string().optional(),
+  pageId: z.string().optional(),
+});
+
 export const markdownInputSchema = z
   .object({
     markdown: z.string().optional(),
@@ -24,13 +33,16 @@ export const markdownInputSchema = z
     },
   );
 
-export const dumpPageMarkdownSchema = optionalPageIdSchema.extend({
-  includeBlockIds: z.boolean().optional(),
-});
+export const dumpPageMarkdownSchema = optionalPageIdSchema
+  .extend({
+    includeBlockIds: z.boolean().optional(),
+  })
+  .merge(optionalNotionTokenSchema);
 
 export const appendMarkdownSchema = z
   .object({
     pageId: z.string().optional(),
+    notionToken: z.string().optional(),
     markdown: z.string().optional(),
     filePath: z.string().optional(),
   })
@@ -46,6 +58,7 @@ export const appendMarkdownSchema = z
 export const replaceMarkdownSchema = z
   .object({
     pageId: z.string().optional(),
+    notionToken: z.string().optional(),
     markdown: z.string().optional(),
     filePath: z.string().optional(),
     smart: z.boolean().optional(),
@@ -63,6 +76,7 @@ export const createChildPageSchema = z
   .object({
     title: z.string().min(1),
     parentPageId: z.string().optional(),
+    notionToken: z.string().optional(),
     markdown: z.string().optional(),
     filePath: z.string().optional(),
   })
@@ -77,6 +91,7 @@ export const createChildPageSchema = z
 export const updateChildPageSchema = z
   .object({
     pageId: z.string().min(1),
+    notionToken: z.string().optional(),
     title: z.string().optional(),
     append: z.boolean().optional(),
     smart: z.boolean().optional(),
@@ -107,24 +122,36 @@ export const uploadImageSchema = z.object({
   filePath: z.string().min(1),
   caption: z.string().optional(),
   pageId: z.string().optional(),
+  notionToken: z.string().optional(),
 });
 
 export const appendImageUrlSchema = z.object({
   url: z.string().min(1),
   caption: z.string().optional(),
   pageId: z.string().optional(),
+  notionToken: z.string().optional(),
 });
 
 export const syncWikiSectionSchema = z.object({
   sectionName: z.string().min(1),
   dryRun: z.boolean().optional(),
   smart: z.boolean().optional(),
+  notionToken: z.string().optional(),
+  pageId: z.string().optional(),
 });
 
 export const syncAllWikiSectionsSchema = z.object({
   dryRun: z.boolean().optional(),
   smart: z.boolean().optional(),
+  notionToken: z.string().optional(),
+  pageId: z.string().optional(),
 });
+
+export const validatePageSchema = optionalCredentialsSchema;
+
+export const validateWikiSchema = z.object({});
+
+export const getServerInfoSchema = optionalCredentialsSchema;
 
 export type OptionalPageIdInput = z.infer<typeof optionalPageIdSchema>;
 export type MarkdownInput = z.infer<typeof markdownInputSchema>;
@@ -137,6 +164,8 @@ export type UploadImageInput = z.infer<typeof uploadImageSchema>;
 export type AppendImageUrlInput = z.infer<typeof appendImageUrlSchema>;
 export type SyncWikiSectionInput = z.infer<typeof syncWikiSectionSchema>;
 export type SyncAllWikiSectionsInput = z.infer<typeof syncAllWikiSectionsSchema>;
+export type ValidatePageInput = z.infer<typeof validatePageSchema>;
+export type GetServerInfoInput = z.infer<typeof getServerInfoSchema>;
 
 /**
  * Plain JSON Schema 7 definitions for MCP tool discovery. These mirror the
@@ -147,6 +176,14 @@ const emptyObjectSchema = {
   type: "object" as const,
   properties: {},
   additionalProperties: false,
+};
+
+const notionTokenProperty = {
+  notionToken: {
+    type: "string" as const,
+    description:
+      "Notion integration token. Defaults to the NOTION_TOKEN environment variable.",
+  },
 };
 
 const pageIdProperty = {
@@ -172,6 +209,7 @@ const markdownInputProperties = {
 export const dumpPageMarkdownInputSchema = {
   type: "object" as const,
   properties: {
+    ...notionTokenProperty,
     ...pageIdProperty,
     includeBlockIds: {
       type: "boolean" as const,
@@ -184,6 +222,7 @@ export const dumpPageMarkdownInputSchema = {
 export const appendMarkdownInputSchema = {
   type: "object" as const,
   properties: {
+    ...notionTokenProperty,
     ...pageIdProperty,
     ...markdownInputProperties,
   },
@@ -193,6 +232,7 @@ export const appendMarkdownInputSchema = {
 export const replaceMarkdownInputSchema = {
   type: "object" as const,
   properties: {
+    ...notionTokenProperty,
     ...pageIdProperty,
     ...markdownInputProperties,
     smart: {
@@ -216,6 +256,7 @@ export const createChildPageInputSchema = {
       description:
         "Parent page ID or URL. Defaults to the NOTION_PAGE_ID environment variable.",
     },
+    ...notionTokenProperty,
     ...markdownInputProperties,
   },
   required: ["title"],
@@ -229,6 +270,7 @@ export const updateChildPageInputSchema = {
       type: "string" as const,
       description: "Child page ID or URL.",
     },
+    ...notionTokenProperty,
     title: {
       type: "string" as const,
       description: "New title for the child page.",
@@ -265,11 +307,8 @@ export const uploadImageInputSchema = {
       type: "string" as const,
       description: "Optional image caption.",
     },
-    pageId: {
-      type: "string" as const,
-      description:
-        "Target page ID or URL. Defaults to the NOTION_PAGE_ID environment variable.",
-    },
+    ...notionTokenProperty,
+    ...pageIdProperty,
   },
   required: ["filePath"],
   additionalProperties: false,
@@ -286,11 +325,8 @@ export const appendImageUrlInputSchema = {
       type: "string" as const,
       description: "Optional image caption.",
     },
-    pageId: {
-      type: "string" as const,
-      description:
-        "Target page ID or URL. Defaults to the NOTION_PAGE_ID environment variable.",
-    },
+    ...notionTokenProperty,
+    ...pageIdProperty,
   },
   required: ["url"],
   additionalProperties: false,
@@ -312,6 +348,8 @@ export const syncWikiSectionInputSchema = {
       description:
         "Use surgical block-level updates instead of clearing the page.",
     },
+    ...notionTokenProperty,
+    ...pageIdProperty,
   },
   required: ["sectionName"],
   additionalProperties: false,
@@ -329,9 +367,27 @@ export const syncAllWikiSectionsInputSchema = {
       description:
         "Use surgical block-level updates instead of clearing pages.",
     },
+    ...notionTokenProperty,
+    ...pageIdProperty,
   },
   additionalProperties: false,
 };
 
 export const validateWikiInputSchema = emptyObjectSchema;
-export const validatePageInputSchema = emptyObjectSchema;
+export const validatePageInputSchema = {
+  type: "object" as const,
+  properties: {
+    ...notionTokenProperty,
+    ...pageIdProperty,
+  },
+  additionalProperties: false,
+};
+
+export const getServerInfoInputSchema = {
+  type: "object" as const,
+  properties: {
+    ...notionTokenProperty,
+    ...pageIdProperty,
+  },
+  additionalProperties: false,
+};

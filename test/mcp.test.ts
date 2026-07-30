@@ -18,6 +18,14 @@ function createMockContext(): { config: AppConfig } {
   };
 }
 
+function createEmptyMockContext(): { config: AppConfig } {
+  return {
+    config: {
+      notionApiVersion: "2026-03-11",
+    },
+  };
+}
+
 describe("MCP server tools", () => {
   it("registers the expected tools", () => {
     const names = mcpTools.map((tool) => tool.name).sort();
@@ -26,6 +34,7 @@ describe("MCP server tools", () => {
       "append_markdown",
       "create_child_page",
       "dump_page_markdown",
+      "get_server_info",
       "replace_markdown",
       "sync_all_wiki_sections",
       "sync_wiki_section",
@@ -134,5 +143,55 @@ describe("MCP server tools", () => {
         process.env.WIKI_CONTENT_ROOT = originalRoot;
       }
     }
+  });
+
+  it("asks for notionToken when it is not configured or provided", async () => {
+    const result = await executeTool(
+      "validate_page",
+      { pageId: "00000000-0000-0000-0000-000000000001" },
+      createEmptyMockContext(),
+    );
+    assert.equal(result.isError, true);
+    assert.ok(
+      result.content[0].text.includes("Please provide notionToken"),
+      `unexpected error: ${result.content[0].text}`,
+    );
+  });
+
+  it("asks for pageId when it is not configured or provided", async () => {
+    const result = await executeTool(
+      "validate_page",
+      { notionToken: "secret_test" },
+      createEmptyMockContext(),
+    );
+    assert.equal(result.isError, true);
+    assert.ok(
+      result.content[0].text.includes("Please provide pageId"),
+      `unexpected error: ${result.content[0].text}`,
+    );
+  });
+
+  it("get_server_info reports configuration status without credentials", async () => {
+    const result = await executeTool("get_server_info", {}, createEmptyMockContext());
+    assert.equal(result.isError, undefined);
+    const info = JSON.parse(result.content[0].text);
+    assert.equal(info.serverName, "sk-notion-wiki");
+    assert.equal(info.notionTokenConfigured, false);
+    assert.equal(info.pageIdConfigured, false);
+    assert.equal(info.connectionStatus, "not_configured");
+  });
+
+  it("get_server_info reports missing pageId when only token is provided", async () => {
+    const result = await executeTool(
+      "get_server_info",
+      { notionToken: "secret_test" },
+      createEmptyMockContext(),
+    );
+    assert.equal(result.isError, undefined);
+    const info = JSON.parse(result.content[0].text);
+    assert.equal(info.notionTokenConfigured, true);
+    assert.equal(info.pageIdConfigured, false);
+    assert.equal(info.connectionStatus, "not_configured");
+    assert.ok(info.connectionDetail.includes("pageId is missing"));
   });
 });

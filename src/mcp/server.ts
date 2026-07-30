@@ -9,16 +9,14 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 import { loadConfig } from "../config";
+import { serverMetadata } from "./meta";
 import { mcpTools, executeTool } from "./tools";
-
-const serverName = "notion-wiki";
-const serverVersion = "1.0.0";
 
 function createServer(): Server {
   const server = new Server(
     {
-      name: serverName,
-      version: serverVersion,
+      name: serverMetadata.name,
+      version: serverMetadata.version,
     },
     {
       capabilities: {

@@ -5,7 +5,6 @@ import type { BlockObjectRequest } from "@notionhq/client";
 import { z } from "zod";
 
 import {
-  loadConfig,
   normalizeNotionId,
   resolveWikiContentRoot,
   type AppConfig,
@@ -32,26 +31,31 @@ import type {
   AppendMarkdownInput,
   CreateChildPageInput,
   DumpPageMarkdownInput,
+  GetServerInfoInput,
   ReplaceMarkdownInput,
   SyncAllWikiSectionsInput,
   SyncWikiSectionInput,
   UpdateChildPageInput,
   UploadImageInput,
+  ValidatePageInput,
 } from "./schemas";
 import {
   appendImageUrlSchema,
   appendMarkdownSchema,
   createChildPageSchema,
   dumpPageMarkdownSchema,
+  getServerInfoSchema,
   replaceMarkdownSchema,
   syncAllWikiSectionsSchema,
   syncWikiSectionSchema,
   updateChildPageSchema,
   uploadImageSchema,
+  validatePageSchema,
   appendImageUrlInputSchema,
   appendMarkdownInputSchema,
   createChildPageInputSchema,
   dumpPageMarkdownInputSchema,
+  getServerInfoInputSchema,
   replaceMarkdownInputSchema,
   syncAllWikiSectionsInputSchema,
   syncWikiSectionInputSchema,
@@ -60,6 +64,7 @@ import {
   validatePageInputSchema,
   validateWikiInputSchema,
 } from "./schemas";
+import { serverMetadata } from "./meta";
 
 export interface McpContext {
   config: AppConfig;
@@ -72,20 +77,37 @@ export interface ToolDefinition {
   handler: (args: unknown, context: McpContext) => Promise<unknown>;
 }
 
-function createClient(context: McpContext) {
-  return createNotionClient(context.config);
+interface ResolvedCredentials {
+  token: string;
+  pageId: string;
 }
 
-function resolvePageId(
-  input: { pageId?: string },
+function resolveCredentials(
+  input: { notionToken?: string; pageId?: string },
   context: McpContext,
-  envVarName = "NOTION_PAGE_ID",
-): string {
-  const raw = input.pageId ?? context.config.notionPageId;
-  if (!raw) {
-    throw new Error(`pageId is required when ${envVarName} is not configured.`);
+): ResolvedCredentials {
+  const token = input.notionToken ?? context.config.notionToken;
+  if (!token) {
+    throw new Error(
+      "Please provide notionToken (tool argument) or set the NOTION_TOKEN environment variable.",
+    );
   }
-  return normalizeNotionId(raw, envVarName);
+
+  const rawPageId = input.pageId ?? context.config.notionPageId;
+  if (!rawPageId) {
+    throw new Error(
+      "Please provide pageId (tool argument) or set the NOTION_PAGE_ID environment variable.",
+    );
+  }
+
+  return { token, pageId: normalizeNotionId(rawPageId) };
+}
+
+function createClient(token: string, context: McpContext) {
+  return createNotionClient({
+    notionToken: token,
+    notionApiVersion: context.config.notionApiVersion,
+  });
 }
 
 async function resolveMarkdownInput(
@@ -108,11 +130,12 @@ async function resolveMarkdownInput(
 async function buildBlocksFromMarkdown(
   context: McpContext,
   input: { markdown?: string; filePath?: string },
+  token: string,
 ): Promise<{ blocks: BlockObjectRequest[]; warnings: string[]; uploadedImages: string[] }> {
   const { content, baseDirectory } = await resolveMarkdownInput(input);
   const transformed = markdownToContentNodes(content);
   const built = await contentNodesToBlocks(transformed.nodes, {
-    client: createClient(context),
+    client: createClient(token, context),
     baseDirectory,
   });
 
@@ -146,14 +169,71 @@ const validatePageTool: ToolDefinition = {
   description:
     "Verify that the configured Notion token can access the configured page and return page metadata.",
   inputSchema: validatePageInputSchema,
-  handler: async (_args, context) => {
-    const client = createClient(context);
-    const summary = await getPageSummary(client, context.config.notionPageId);
+  handler: async (args, context) => {
+    const input = validatePageSchema.parse(args);
+    const { token, pageId } = resolveCredentials(input, context);
+    const client = createClient(token, context);
+    const summary = await getPageSummary(client, pageId);
     return {
       content: [
         {
           type: "text",
           text: `Connected to page.\n${formatPageSummary(summary)}`,
+        },
+      ],
+    };
+  },
+};
+
+const getServerInfoTool: ToolDefinition = {
+  name: "get_server_info",
+  description:
+    "Return server identity, configuration status, and a live Notion connectivity check. Useful for discovering which server is running and whether credentials work.",
+  inputSchema: getServerInfoInputSchema,
+  handler: async (args, context) => {
+    const input = getServerInfoSchema.parse(args);
+    const token = input.notionToken ?? context.config.notionToken;
+    const rawPageId = input.pageId ?? context.config.notionPageId;
+
+    const wikiContentDirectory = resolveWikiContentRoot(context.config.wikiContentRoot);
+
+    let connectionStatus: "ok" | "error" | "not_configured" = "not_configured";
+    let connectionDetail = "No notionToken and/or pageId configured.";
+
+    if (token && rawPageId) {
+      try {
+        const client = createClient(token, context);
+        const summary = await getPageSummary(client, normalizeNotionId(rawPageId));
+        connectionStatus = "ok";
+        connectionDetail = `Connected to "${summary.title}" (${summary.url}, ${summary.topLevelBlockCount} blocks)`;
+      } catch (err) {
+        connectionStatus = "error";
+        connectionDetail = formatNotionError(err);
+      }
+    } else if (token) {
+      connectionDetail = "notionToken is configured, but pageId is missing.";
+    } else if (rawPageId) {
+      connectionDetail = "pageId is configured, but notionToken is missing.";
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              serverName: serverMetadata.name,
+              version: serverMetadata.version,
+              description: serverMetadata.description,
+              notionTokenConfigured: Boolean(token),
+              pageIdConfigured: Boolean(rawPageId),
+              wikiContentDirectory,
+              connectionStatus,
+              connectionDetail,
+            },
+            null,
+            2,
+          ),
         },
       ],
     };
@@ -167,8 +247,8 @@ const dumpPageMarkdownTool: ToolDefinition = {
   inputSchema: dumpPageMarkdownInputSchema,
   handler: async (args, context) => {
     const input = dumpPageMarkdownSchema.parse(args);
-    const client = createClient(context);
-    const pageId = resolvePageId(input, context);
+    const { token, pageId } = resolveCredentials(input, context);
+    const client = createClient(token, context);
     const result = await getPageMarkdown(client, pageId, {
       includeBlockIds: input.includeBlockIds,
     });
@@ -196,9 +276,9 @@ const appendMarkdownTool: ToolDefinition = {
   inputSchema: appendMarkdownInputSchema,
   handler: async (args, context) => {
     const input = appendMarkdownSchema.parse(args);
-    const client = createClient(context);
-    const pageId = resolvePageId(input, context);
-    const { blocks, warnings, uploadedImages } = await buildBlocksFromMarkdown(context, input);
+    const { token, pageId } = resolveCredentials(input, context);
+    const client = createClient(token, context);
+    const { blocks, warnings, uploadedImages } = await buildBlocksFromMarkdown(context, input, token);
     const appendedCount = await appendBlocks(client, pageId, blocks);
 
     const lines = [`Appended ${appendedCount} block(s).`];
@@ -230,9 +310,9 @@ const replaceMarkdownTool: ToolDefinition = {
   inputSchema: replaceMarkdownInputSchema,
   handler: async (args, context) => {
     const input = replaceMarkdownSchema.parse(args);
-    const client = createClient(context);
-    const pageId = resolvePageId(input, context);
-    const { blocks, warnings, uploadedImages } = await buildBlocksFromMarkdown(context, input);
+    const { token, pageId } = resolveCredentials(input, context);
+    const client = createClient(token, context);
+    const { blocks, warnings, uploadedImages } = await buildBlocksFromMarkdown(context, input, token);
 
     const lines: string[] = [];
 
@@ -278,10 +358,22 @@ const createChildPageTool: ToolDefinition = {
   inputSchema: createChildPageInputSchema,
   handler: async (args, context) => {
     const input = createChildPageSchema.parse(args);
-    const client = createClient(context);
+    const token = input.notionToken ?? context.config.notionToken;
+    if (!token) {
+      throw new Error(
+        "Please provide notionToken (tool argument) or set the NOTION_TOKEN environment variable.",
+      );
+    }
     const parentPageId = input.parentPageId
       ? normalizeNotionId(input.parentPageId)
       : context.config.notionPageId;
+    if (!parentPageId) {
+      throw new Error(
+        "Please provide parentPageId (tool argument) or set the NOTION_PAGE_ID environment variable.",
+      );
+    }
+
+    const client = createClient(token, context);
 
     const page = await createChildPage(client, {
       parentPageId,
@@ -296,7 +388,7 @@ const createChildPageTool: ToolDefinition = {
 
     const hasMarkdown = input.markdown !== undefined || input.filePath !== undefined;
     if (hasMarkdown) {
-      const { blocks, warnings, uploadedImages } = await buildBlocksFromMarkdown(context, input);
+      const { blocks, warnings, uploadedImages } = await buildBlocksFromMarkdown(context, input, token);
       const appendedCount = await appendBlocks(client, page.id, blocks);
       lines.push(`Appended ${appendedCount} block(s).`);
       if (uploadedImages.length > 0) {
@@ -329,11 +421,22 @@ const updateChildPageTool: ToolDefinition = {
   inputSchema: updateChildPageInputSchema,
   handler: async (args, context) => {
     const input = updateChildPageSchema.parse(args);
-    const client = createClient(context);
+    const token = input.notionToken ?? context.config.notionToken;
+    if (!token) {
+      throw new Error(
+        "Please provide notionToken (tool argument) or set the NOTION_TOKEN environment variable.",
+      );
+    }
+    const client = createClient(token, context);
     const pageId = normalizeNotionId(input.pageId);
     const existingPage = await getPage(client, pageId);
 
     if (!input.skipParentCheck) {
+      if (!context.config.notionPageId) {
+        throw new Error(
+          "NOTION_PAGE_ID environment variable is required for the parent check. Provide it or use skipParentCheck.",
+        );
+      }
       assertDirectChildPage(existingPage, context.config.notionPageId);
     }
 
@@ -345,7 +448,7 @@ const updateChildPageTool: ToolDefinition = {
 
     const hasMarkdown = input.markdown !== undefined || input.filePath !== undefined;
     if (hasMarkdown) {
-      const { blocks, warnings, uploadedImages } = await buildBlocksFromMarkdown(context, input);
+      const { blocks, warnings, uploadedImages } = await buildBlocksFromMarkdown(context, input, token);
 
       if (input.append) {
         const appendedCount = await appendBlocks(client, pageId, blocks);
@@ -395,8 +498,8 @@ const uploadImageTool: ToolDefinition = {
   inputSchema: uploadImageInputSchema,
   handler: async (args, context) => {
     const input = uploadImageSchema.parse(args);
-    const client = createClient(context);
-    const pageId = resolvePageId(input, context);
+    const { token, pageId } = resolveCredentials(input, context);
+    const client = createClient(token, context);
     const resolvedPath = path.resolve(input.filePath);
     const upload = await uploadImageFile(client, resolvedPath);
     const appendedCount = await appendBlocks(client, pageId, [
@@ -430,8 +533,8 @@ const appendImageUrlTool: ToolDefinition = {
   inputSchema: appendImageUrlInputSchema,
   handler: async (args, context) => {
     const input = appendImageUrlSchema.parse(args);
-    const client = createClient(context);
-    const pageId = resolvePageId(input, context);
+    const { token, pageId } = resolveCredentials(input, context);
+    const client = createClient(token, context);
     assertSupportedRemoteImageUrl(input.url);
     const appendedCount = await appendBlocks(client, pageId, [
       {
@@ -462,7 +565,8 @@ const syncWikiSectionTool: ToolDefinition = {
   inputSchema: syncWikiSectionInputSchema,
   handler: async (args, context) => {
     const input = syncWikiSectionSchema.parse(args);
-    const client = createClient(context);
+    const { token, pageId } = resolveCredentials(input, context);
+    const client = createClient(token, context);
     const { wikiContentDirectory, pageMap } = await loadWikiContext(context);
 
     const result = await syncWikiSection(
@@ -473,7 +577,7 @@ const syncWikiSectionTool: ToolDefinition = {
       },
       {
         client,
-        rootPageId: context.config.notionPageId,
+        rootPageId: pageId,
         wikiContentDirectory,
         pageMap,
       },
@@ -533,7 +637,8 @@ const syncAllWikiSectionsTool: ToolDefinition = {
   inputSchema: syncAllWikiSectionsInputSchema,
   handler: async (args, context) => {
     const input = syncAllWikiSectionsSchema.parse(args);
-    const client = createClient(context);
+    const { token, pageId } = resolveCredentials(input, context);
+    const client = createClient(token, context);
     const { wikiContentDirectory, pageMap } = await loadWikiContext(context);
 
     const sectionNames = Object.keys(pageMap.sections);
@@ -551,7 +656,7 @@ const syncAllWikiSectionsTool: ToolDefinition = {
           },
           {
             client,
-            rootPageId: context.config.notionPageId,
+            rootPageId: pageId,
             wikiContentDirectory,
             pageMap,
           },
@@ -666,6 +771,7 @@ const validateWikiTool: ToolDefinition = {
 };
 
 export const mcpTools: ToolDefinition[] = [
+  getServerInfoTool,
   validatePageTool,
   dumpPageMarkdownTool,
   appendMarkdownTool,

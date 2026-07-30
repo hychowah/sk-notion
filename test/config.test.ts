@@ -91,3 +91,18 @@ test("resolveWikiContentRoot falls back to wiki-content in the current working d
   const resolved = resolveWikiContentRoot();
   assert.ok(resolved.endsWith("wiki-content"));
 });
+
+test("loadConfig leaves token and page ID undefined when not set", () => {
+  const config = loadConfig({});
+  assert.equal(config.notionToken, undefined);
+  assert.equal(config.notionPageId, undefined);
+});
+
+test("loadConfig treats empty token and page ID as undefined", () => {
+  const config = loadConfig({
+    NOTION_TOKEN: "",
+    NOTION_PAGE_ID: "   ",
+  });
+  assert.equal(config.notionToken, undefined);
+  assert.equal(config.notionPageId, undefined);
+});

@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 
-import { loadConfig } from "../config";
+import { assertNotionCredentials, loadConfig } from "../config";
 import { createNotionClient, formatNotionError } from "../notion/client";
 import { assertDirectChildPage, getPage, getPageSummary } from "../notion/page";
 
 async function main(): Promise<void> {
   const config = loadConfig();
-  const client = createNotionClient(config);
+  assertNotionCredentials(config);
+  const client = createNotionClient({
+    notionToken: config.notionToken,
+    notionApiVersion: config.notionApiVersion,
+  });
   const targetPageId = config.notionTestPageId ?? config.notionPageId;
 
   if (config.notionTestPageId) {

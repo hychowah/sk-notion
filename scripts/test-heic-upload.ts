@@ -1,4 +1,4 @@
-import { loadConfig } from "../src/config.js";
+import { assertNotionCredentials, loadConfig } from "../src/config.js";
 import { createNotionClient } from "../src/notion/client.js";
 import { uploadImageFile } from "../src/notion/uploads.js";
 
@@ -10,7 +10,11 @@ async function main() {
   }
 
   const config = loadConfig();
-  const client = createNotionClient(config);
+  assertNotionCredentials(config);
+  const client = createNotionClient({
+    notionToken: config.notionToken,
+    notionApiVersion: config.notionApiVersion,
+  });
   try {
     const result = await uploadImageFile(client, filePath);
     console.log("Uploaded:", result.filename, result.fileUploadId, result.contentType);

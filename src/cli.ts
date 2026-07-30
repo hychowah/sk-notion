@@ -3,7 +3,12 @@ import path from "node:path";
 
 import { Command } from "commander";
 
-import { loadConfig, normalizeNotionId } from "./config";
+import {
+  assertNotionCredentials,
+  loadConfig,
+  normalizeNotionId,
+  type AppConfig,
+} from "./config";
 import { createNotionClient, formatNotionError } from "./notion/client";
 import {
   addPageComment,
@@ -470,9 +475,18 @@ async function main(): Promise<void> {
 
 type RuntimeContext = ReturnType<typeof createRuntimeContext>;
 
-function createRuntimeContext(): { config: ReturnType<typeof loadConfig>; client: ReturnType<typeof createNotionClient> } {
-  const config = loadConfig();
-  const client = createNotionClient(config);
+type VerifiedAppConfig = AppConfig & { notionToken: string; notionPageId: string };
+
+function createRuntimeContext(): {
+  config: VerifiedAppConfig;
+  client: ReturnType<typeof createNotionClient>;
+} {
+  const config = loadConfig() as VerifiedAppConfig;
+  assertNotionCredentials(config);
+  const client = createNotionClient({
+    notionToken: config.notionToken,
+    notionApiVersion: config.notionApiVersion,
+  });
   return { config, client };
 }
 

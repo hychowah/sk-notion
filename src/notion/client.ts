@@ -1,15 +1,21 @@
 import { APIResponseError, Client, LogLevel, isNotionClientError } from "@notionhq/client";
 
-import type { AppConfig } from "../config";
+export interface NotionClientOptions {
+  notionToken: string;
+  notionApiVersion: string;
+}
 
 const RETRYABLE_STATUS_CODES = new Set([429, 409, 502, 503, 504]);
 const INITIAL_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 16000;
 
-export function createNotionClient(config: AppConfig): Client {
+export function createNotionClient({
+  notionToken,
+  notionApiVersion,
+}: NotionClientOptions): Client {
   return new Client({
-    auth: config.notionToken,
-    notionVersion: config.notionApiVersion,
+    auth: notionToken,
+    notionVersion: notionApiVersion,
     logLevel: LogLevel.WARN,
   });
 }

@@ -1,12 +1,17 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-import { loadConfig, resolveWikiContentRoot } from "../src/config";
+import {
+  assertNotionCredentials,
+  loadConfig,
+  resolveWikiContentRoot,
+} from "../src/config";
 import { createNotionClient, formatNotionError } from "../src/notion/client";
 import { loadPageMap, syncWikiSection } from "../src/sync-wiki";
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  assertNotionCredentials(config);
   const args = process.argv.slice(2);
   const dryRun = args.includes("--dry-run");
   const smart = args.includes("--smart");
@@ -44,7 +49,10 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const client = createNotionClient(config);
+  const client = createNotionClient({
+    notionToken: config.notionToken,
+    notionApiVersion: config.notionApiVersion,
+  });
 
   const deps = {
     client,
