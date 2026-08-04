@@ -32,7 +32,28 @@ export async function updatePageContentSurgically(
     (b): b is BlockObjectResponse => "type" in b && b.type !== undefined,
   );
 
-  const diff = diffBlocks(currentBlocks, targetBlocks);
+  // Table rows live in child blocks; fetch them so table fingerprints include
+  // the actual cell content and unchanged tables are kept, not replaced.
+  const currentTableText = new Map<string, string>();
+  for (const block of currentBlocks) {
+    if (block.type === "table") {
+      const rows = await listAllBlockChildren(client, block.id);
+      const text = rows
+        .filter(
+          (r): r is BlockObjectResponse & { type: "table_row" } =>
+            "type" in r && r.type === "table_row",
+        )
+        .map((r) =>
+          r.table_row.cells
+            .map((cell) => cell.map((c) => ("plain_text" in c ? c.plain_text : "")).join(""))
+            .join("|"),
+        )
+        .join("\n");
+      currentTableText.set(block.id, text);
+    }
+  }
+
+  const diff = diffBlocks(currentBlocks, targetBlocks, currentTableText);
 
   if (diff.ops.length === 0) {
     return {
@@ -91,6 +112,11 @@ export async function updatePageContentSurgically(
             await client.blocks.update({
               block_id: op.blockId,
               quote: { rich_text: block.quote.rich_text },
+            });
+          } else if (block.type === "callout") {
+            await client.blocks.update({
+              block_id: op.blockId,
+              callout: { rich_text: block.callout.rich_text },
             });
           } else if (block.type === "code") {
             await client.blocks.update({

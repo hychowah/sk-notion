@@ -185,26 +185,32 @@ Add `--replace` if you want the publish run to clear existing top-level blocks f
 
 ## Supported Markdown subset
 
-Version 1 converts these Markdown constructs into Notion blocks:
+The tool converts these Markdown constructs into Notion blocks:
 
 - headings 1 through 4
 - paragraphs
 - bulleted lists
 - numbered lists
-- blockquotes
+- blockquotes — a quote starting with `**Warning:**` becomes an orange ⚠️ callout; `**Note:**` becomes a gray ℹ️ callout; other quotes stay quote blocks
+- **tables** — published as native Notion table blocks with a styled header row (skip + warning above ~90 rows)
 - fenced code blocks
 - horizontal rules
 - image syntax using remote URLs or local file paths
-- italic text (wrapped in `*` or `_`)
+- inline formatting: **bold**, *italic*, and `inline code` are preserved as Notion rich-text annotations
+
+Automatic behaviors:
+
+- **table of contents** — pages with ≥ 8 H2/H3 headings get a Notion `table_of_contents` block inserted after the H1 (wiki sync only)
+- **HTML comments are stripped** before publishing, so `<!-- TODO ... -->` markers in source never appear in Notion
+- **inline links to other wiki pages** — relative markdown links like `[text](../other-page/index.md)` or `[text](child-page/index.md)` in source files are resolved against `page-map.json` during sync and converted to Notion page URLs. Unmatched links are dropped to plain text with a sync warning (they are never published as dead URLs).
+- image paths may contain spaces — the tool automatically percent-encodes them for parsing and decodes them again before resolving on disk
+- **use local file paths for images** — S3 presigned URLs from `dump-md` expire within an hour and become dead images on republish
 
 Current limitations:
 
 - nested lists are flattened
-- tables and raw HTML are ignored with warnings
-- inline formatting is reduced to plain text
-- **inline links to other wiki pages** — you can use relative markdown links like `[text](../other-page/index.md)` in source files. During sync, the tool resolves them against `page-map.json` and converts them to proper Notion page URLs. Only links that match a known page-map entry are converted; unmatched links are left as-is.
-- image paths may contain spaces — the tool automatically percent-encodes them for parsing and decodes them again before resolving on disk
-- **use local file paths for images** — S3 presigned URLs from `dump-md` expire within an hour and become dead images on republish
+- raw HTML is ignored with warnings
+- anchor links (`#section`) are dropped to plain text (Notion does not support them)
 
 ## Wiki Content Foundation
 
@@ -271,14 +277,14 @@ npx tsx src/cli.ts update-child-page --page-id <child-page-id> --file "$env:WIKI
 npx tsx src/cli.ts create-child-page "New Section" --file "$env:WIKI_CONTENT_ROOT\new-section\index.md"
 ```
 
-Because the tool flattens nested lists, ignores tables, and strips inline formatting, keep the source Markdown simple: use headings, plain paragraphs, bullet lists, numbered lists, blockquotes, code fences, dividers, and image references.
+Because the tool flattens nested lists and ignores raw HTML, keep the source Markdown simple: use headings, plain paragraphs, bullet lists, numbered lists, blockquotes, tables, code fences, dividers, and image references.
 
 ### Adding a new wiki section
 
 1. Create a new folder in `wiki-content/` with `index.md` and an `images/` subdirectory.
-2. Run `create-child-page` to add it under the root page and note the printed page ID.
-3. Add an entry to `wiki-content/page-map.json` with the new page ID.
-4. Update `wiki-content/parent.md` to list the new section, then republish the root page with `npm run sync -- parent`.
+2. Add an entry to `wiki-content/page-map.json` with `"pageId": "TODO"`.
+3. Run the sync (`npm run sync -- --all` or `npm run sync -- <new-section>`). The tool creates the Notion child page automatically — nested under the section's parent folder page (e.g. `a/b/index.md` goes under the page for `a/index.md`) — and writes the real page ID back into `page-map.json`.
+4. If the new section should appear in the root page's navigation table, update `wiki-content/parent.md` and re-sync with `npm run sync -- parent`.
 
 ---
 

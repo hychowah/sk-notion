@@ -25,22 +25,24 @@ export type BlockDiffResult = {
   addedCount: number;
 };
 
-function richTextResponseToPlainText(richText: Array<{ plain_text?: string }>): string {
-  return richText.map((item) => item.plain_text ?? "").join("");
+function richTextResponseToPlainText(richText: Array<{ plain_text?: string; href?: string | null }>): string {
+  return richText
+    .map((item) => (item.plain_text ?? "") + (item.href ? `(${item.href})` : ""))
+    .join("");
 }
 
 function richTextRequestToPlainText(richText: RichTextItemRequest[]): string {
   return richText
     .map((item) => {
       if (item.type === "text") {
-        return item.text.content;
+        return item.text.content + (item.text.link?.url ? `(${item.text.link.url})` : "");
       }
       return "";
     })
     .join("");
 }
 
-export function fingerprintResponse(block: BlockObjectResponse): BlockFingerprint | null {
+export function fingerprintResponse(block: BlockObjectResponse, tableText?: string): BlockFingerprint | null {
   switch (block.type) {
     case "paragraph":
       return {
@@ -82,6 +84,17 @@ export function fingerprintResponse(block: BlockObjectResponse): BlockFingerprin
         type: "quote",
         text: richTextResponseToPlainText(block.quote.rich_text),
       };
+    case "callout":
+      return {
+        type: "callout",
+        text: richTextResponseToPlainText(block.callout.rich_text),
+      };
+    case "table":
+      // Table row content lives in child blocks; the caller may supply the
+      // pre-fetched plain text of all rows (keyed by table block id).
+      return { type: "table", text: tableText ?? "" };
+    case "table_of_contents":
+      return { type: "table_of_contents", text: "" };
     case "code":
       return {
         type: "code",
@@ -153,6 +166,24 @@ export function fingerprintRequest(block: BlockObjectRequest): BlockFingerprint 
         type: "quote",
         text: richTextRequestToPlainText(block.quote.rich_text),
       };
+    case "callout":
+      return {
+        type: "callout",
+        text: richTextRequestToPlainText(block.callout.rich_text),
+      };
+    case "table": {
+      const children = block.table.children ?? [];
+      const text = children
+        .map((row) =>
+          row.type === "table_row"
+            ? row.table_row.cells.map((cell) => richTextRequestToPlainText(cell)).join("|")
+            : "",
+        )
+        .join("\n");
+      return { type: "table", text };
+    }
+    case "table_of_contents":
+      return { type: "table_of_contents", text: "" };
     case "code":
       return {
         type: "code",
@@ -198,9 +229,10 @@ function fingerprintsEqual(a: BlockFingerprint, b: BlockFingerprint): boolean {
 export function diffBlocks(
   currentBlocks: BlockObjectResponse[],
   targetBlocks: BlockObjectRequest[],
+  currentTableText?: Map<string, string>,
 ): BlockDiffResult {
   const current = currentBlocks
-    .map((b, i) => ({ index: i, fp: fingerprintResponse(b), blockId: b.id }))
+    .map((b, i) => ({ index: i, fp: fingerprintResponse(b, currentTableText?.get(b.id)), blockId: b.id }))
     .filter((b): b is typeof b & { fp: BlockFingerprint } => b.fp !== null);
 
   const target = targetBlocks
@@ -321,6 +353,7 @@ function isUpdateableType(type: string): boolean {
     "bulleted_list_item",
     "numbered_list_item",
     "quote",
+    "callout",
     "code",
     "divider",
   ].includes(type);

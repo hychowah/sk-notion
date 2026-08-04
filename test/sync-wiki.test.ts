@@ -295,7 +295,7 @@ test("syncWikiSection does not update title for root sections", async () => {
   await rm(dir, { recursive: true });
 });
 
-test("syncWikiSection propagates markdown warnings for unsupported blocks", async () => {
+test("syncWikiSection propagates markdown warnings without warning on tables", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "sync-wiki-test-"));
   const wikiDir = path.join(dir, "wiki-content");
   const sectionDir = path.join(wikiDir, "warn-section");
@@ -364,8 +364,8 @@ test("syncWikiSection propagates markdown warnings for unsupported blocks", asyn
   );
 
   assert.ok(
-    result.warnings.some((w) => w.includes("Unsupported markdown block ignored")),
-    `Expected table warning, got: ${result.warnings.join(", ")}`,
+    !result.warnings.some((w) => w.includes("table")),
+    `Expected no table warning, got: ${result.warnings.join(", ")}`,
   );
   assert.ok(
     result.warnings.some((w) => w.includes("flattened")),

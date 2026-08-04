@@ -77,7 +77,7 @@ export async function appendBlocks(
   for (let index = 0; index < blocks.length; index += APPEND_CHUNK_SIZE) {
     const children = blocks.slice(index, index + APPEND_CHUNK_SIZE);
 
-    const response = await withRateLimitRetry(() =>
+    await withRateLimitRetry(() =>
       client.blocks.children.append({
         block_id: blockId,
         children,
@@ -85,7 +85,7 @@ export async function appendBlocks(
       }),
     );
 
-    appendedCount += response.results.length;
+    appendedCount += children.length;
 
     const isLastChunk = index + APPEND_CHUNK_SIZE >= blocks.length;
     if (!isLastChunk) {
@@ -131,6 +131,9 @@ export async function replacePageContent(
   blocks: BlockObjectRequest[],
 ): Promise<{ archivedCount: number; appendedCount: number }> {
   const archivedCount = await archiveAllPageChildren(client, pageId);
+  // The page is empty after archiving, so append at the end (default position).
+  // Passing { type: "start" } here puts every 100-block chunk at the top,
+  // which reverses chunk order on pages with more than 100 blocks.
   const appendedCount = await appendBlocks(client, pageId, blocks);
 
   return { archivedCount, appendedCount };
@@ -165,6 +168,28 @@ export function assertDirectChildPage(page: PageObjectResponse, parentPageId: st
   if (page.parent.type !== "page_id" || page.parent.page_id !== parentPageId) {
     throw new Error("The specified page is not a direct child of the configured parent page.");
   }
+}
+
+/**
+ * Move a page under a new parent page. Returns true if the page was moved,
+ * false if it was already in the right place.
+ */
+export async function movePageToParent(
+  client: Client,
+  pageId: string,
+  parentPageId: string,
+): Promise<boolean> {
+  const page = await getPage(client, pageId);
+  if (page.parent.type === "page_id" && page.parent.page_id === parentPageId) {
+    return false;
+  }
+  await withRateLimitRetry(() =>
+    client.pages.move({
+      page_id: pageId,
+      parent: { type: "page_id", page_id: parentPageId },
+    }),
+  );
+  return true;
 }
 
 export async function updatePageDetails(

@@ -198,3 +198,96 @@ test("fingerprintResponse extracts image url", () => {
   assert.equal(fp?.type, "image");
   assert.equal(fp?.imageUrl, "https://example.com/img.png");
 });
+
+test("fingerprintRequest handles table, callout, and table_of_contents blocks", () => {
+  const table = fingerprintRequest({
+    type: "table",
+    table: {
+      table_width: 2,
+      has_column_header: true,
+      has_row_header: false,
+      children: [
+        {
+          type: "table_row",
+          table_row: {
+            cells: [
+              [{ type: "text", text: { content: "a" } }],
+              [{ type: "text", text: { content: "b" } }],
+            ],
+          },
+        },
+        {
+          type: "table_row",
+          table_row: {
+            cells: [
+              [{ type: "text", text: { content: "1" } }],
+              [{ type: "text", text: { content: "2" } }],
+            ],
+          },
+        },
+      ],
+    },
+  });
+  assert.deepEqual(table, { type: "table", text: "a|b\n1|2" });
+
+  const callout = fingerprintRequest({
+    type: "callout",
+    callout: {
+      rich_text: [{ type: "text", text: { content: "Warning: careful" } }],
+      icon: { type: "emoji", emoji: "⚠️" },
+      color: "orange_background",
+    },
+  });
+  assert.deepEqual(callout, { type: "callout", text: "Warning: careful" });
+
+  const toc = fingerprintRequest({
+    type: "table_of_contents",
+    table_of_contents: { color: "default" },
+  });
+  assert.deepEqual(toc, { type: "table_of_contents", text: "" });
+});
+
+test("diffBlocks keeps an unchanged table using fetched row text", () => {
+  const tableBlock = {
+    type: "table",
+    table: {
+      table_width: 2,
+      has_column_header: true,
+      has_row_header: false,
+      children: [
+        {
+          type: "table_row",
+          table_row: {
+            cells: [
+              [{ type: "text", text: { content: "a" } }],
+              [{ type: "text", text: { content: "b" } }],
+            ],
+          },
+        },
+      ],
+    },
+  } as unknown as BlockObjectRequest;
+
+  const remoteTable = {
+    object: "block",
+    id: "table-1",
+    parent: { type: "page_id", page_id: "parent" },
+    created_time: "2024-01-01T00:00:00.000Z",
+    created_by: { object: "user", id: "user" },
+    last_edited_time: "2024-01-01T00:00:00.000Z",
+    last_edited_by: { object: "user", id: "user" },
+    has_children: true,
+    in_trash: false,
+    archived: false,
+    type: "table",
+    table: { table_width: 2, has_column_header: true, has_row_header: false },
+  } as unknown as BlockObjectResponse;
+
+  const tableText = new Map([["table-1", "a|b"]]);
+  const kept = diffBlocks([remoteTable], [tableBlock], tableText);
+  assert.equal(kept.unchangedCount, 1);
+  assert.equal(kept.addedCount, 0);
+
+  const changed = diffBlocks([remoteTable], [tableBlock], new Map([["table-1", "x|y"]]));
+  assert.equal(changed.unchangedCount, 0);
+});

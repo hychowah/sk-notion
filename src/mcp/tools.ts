@@ -25,7 +25,7 @@ import { assertSupportedRemoteImageUrl, uploadImageFile } from "../notion/upload
 import { updatePageContentSurgically } from "../diff/execute";
 import { contentNodesToBlocks, richTextFromText } from "../transform/blocks";
 import { markdownToContentNodes } from "../transform/markdown";
-import { loadPageMap, syncWikiSection, type PageMap } from "../sync-wiki";
+import { ensureAllSectionPages, loadPageMap, syncWikiSection, type PageMap } from "../sync-wiki";
 import type {
   AppendImageUrlInput,
   AppendMarkdownInput,
@@ -149,10 +149,12 @@ async function buildBlocksFromMarkdown(
 async function loadWikiContext(context: McpContext): Promise<{
   wikiContentDirectory: string;
   pageMap: PageMap;
+  pageMapPath: string;
 }> {
   const wikiContentDirectory = resolveWikiContentRoot(context.config.wikiContentRoot);
-  const pageMap = await loadPageMap(path.resolve(wikiContentDirectory, "page-map.json"));
-  return { wikiContentDirectory, pageMap };
+  const pageMapPath = path.resolve(wikiContentDirectory, "page-map.json");
+  const pageMap = await loadPageMap(pageMapPath);
+  return { wikiContentDirectory, pageMap, pageMapPath };
 }
 
 function formatPageSummary(summary: PageSummary): string {
@@ -567,7 +569,7 @@ const syncWikiSectionTool: ToolDefinition = {
     const input = syncWikiSectionSchema.parse(args);
     const { token, pageId } = resolveCredentials(input, context);
     const client = createClient(token, context);
-    const { wikiContentDirectory, pageMap } = await loadWikiContext(context);
+    const { wikiContentDirectory, pageMap, pageMapPath } = await loadWikiContext(context);
 
     const result = await syncWikiSection(
       {
@@ -580,6 +582,7 @@ const syncWikiSectionTool: ToolDefinition = {
         rootPageId: pageId,
         wikiContentDirectory,
         pageMap,
+        pageMapPath,
       },
     );
 
@@ -639,7 +642,11 @@ const syncAllWikiSectionsTool: ToolDefinition = {
     const input = syncAllWikiSectionsSchema.parse(args);
     const { token, pageId } = resolveCredentials(input, context);
     const client = createClient(token, context);
-    const { wikiContentDirectory, pageMap } = await loadWikiContext(context);
+    const { wikiContentDirectory, pageMap, pageMapPath } = await loadWikiContext(context);
+
+    if (!input.dryRun) {
+      await ensureAllSectionPages(client, pageId, pageMap, pageMapPath);
+    }
 
     const sectionNames = Object.keys(pageMap.sections);
     const outputs: string[] = [];

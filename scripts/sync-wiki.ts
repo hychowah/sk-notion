@@ -7,7 +7,7 @@ import {
   resolveWikiContentRoot,
 } from "../src/config";
 import { createNotionClient, formatNotionError } from "../src/notion/client";
-import { loadPageMap, syncWikiSection } from "../src/sync-wiki";
+import { ensureAllSectionPages, loadPageMap, syncWikiSection } from "../src/sync-wiki";
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -26,9 +26,8 @@ async function main(): Promise<void> {
     );
   }
 
-  const pageMap = await loadPageMap(
-    path.resolve(wikiContentDirectory, "page-map.json"),
-  );
+  const pageMapPath = path.resolve(wikiContentDirectory, "page-map.json");
+  const pageMap = await loadPageMap(pageMapPath);
 
   if ((!sectionName && !syncAll)) {
     console.log("Usage: npx tsx scripts/sync-wiki.ts <section-name> [--dry-run] [--smart]");
@@ -59,7 +58,12 @@ async function main(): Promise<void> {
     rootPageId: config.notionPageId,
     wikiContentDirectory,
     pageMap,
+    pageMapPath,
   };
+
+  if (syncAll && !dryRun) {
+    await ensureAllSectionPages(client, config.notionPageId, pageMap, pageMapPath);
+  }
 
   const sectionNames = syncAll
     ? Object.keys(pageMap.sections)

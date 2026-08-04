@@ -4,7 +4,9 @@ import type { BlockObjectRequest, Client } from "@notionhq/client";
 import type { RichTextItemRequest } from "@notionhq/client/build/src/api-endpoints/common";
 
 import { assertSupportedRemoteImageUrl, isRemoteUrl, uploadImageFile } from "../notion/uploads";
-import type { BlockBuildResult, ContentNode, RichTextSegment } from "./types";
+import type { BlockBuildResult, ContentNode, RichTextSegment, TableCell } from "./types";
+
+const MAX_TABLE_ROWS = 90;
 
 const MAX_RICH_TEXT_CHARS = 2000;
 const NOTION_CODE_LANGUAGES = new Set([
@@ -155,6 +157,48 @@ export async function contentNodesToBlocks(
           },
         });
         break;
+      case "callout":
+        blocks.push({
+          type: "callout",
+          callout: {
+            rich_text: segmentsToRichText(node.segments),
+            icon: { type: "emoji", emoji: node.icon as never },
+            color: node.color as never,
+          },
+        });
+        break;
+      case "table": {
+        const tableWidth = node.header.length;
+        if (tableWidth === 0) {
+          warnings.push("Table without a header row skipped.");
+          break;
+        }
+        if (node.rows.length > MAX_TABLE_ROWS) {
+          warnings.push(
+            `Table with ${node.rows.length} rows exceeds the ${MAX_TABLE_ROWS}-row publish limit and was skipped.`,
+          );
+          break;
+        }
+        blocks.push({
+          type: "table",
+          table: {
+            table_width: tableWidth,
+            has_column_header: true,
+            has_row_header: false,
+            children: [
+              tableRowBlock(node.header),
+              ...node.rows.map((row) => tableRowBlock(row)),
+            ],
+          },
+        });
+        break;
+      }
+      case "table_of_contents":
+        blocks.push({
+          type: "table_of_contents",
+          table_of_contents: { color: "default" },
+        });
+        break;
       case "code":
         blocks.push({
           type: "code",
@@ -213,10 +257,26 @@ export function segmentsToRichText(segments: RichTextSegment[]): RichTextItemReq
       if (seg.link) {
         item.text.link = seg.link;
       }
+      if (seg.annotations) {
+        item.annotations = {
+          ...(seg.annotations.bold ? { bold: true } : {}),
+          ...(seg.annotations.italic ? { italic: true } : {}),
+          ...(seg.annotations.code ? { code: true } : {}),
+        };
+      }
       result.push(item);
     }
   }
   return result;
+}
+
+function tableRowBlock(cells: TableCell[]) {
+  return {
+    type: "table_row" as const,
+    table_row: {
+      cells: cells.map((cell) => segmentsToRichText(cell)),
+    },
+  };
 }
 
 async function imageNodeToBlock(

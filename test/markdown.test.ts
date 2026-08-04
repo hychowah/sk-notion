@@ -48,10 +48,80 @@ test("markdownToContentNodes warns when flattening nested lists", () => {
   );
 });
 
-test("markdownToContentNodes warns on unsupported tables", () => {
-  const result = markdownToContentNodes("| a | b |\n| - | - |\n| 1 | 2 |");
+test("markdownToContentNodes parses tables into table nodes", () => {
+  const result = markdownToContentNodes("| a | b |\n| - | - |\n| 1 | 2 |\n| 3 | 4 |");
 
-  assert.ok(result.warnings.includes("Unsupported markdown block ignored: table_open"));
+  assert.deepEqual(result.nodes, [
+    {
+      type: "table",
+      header: [[{ text: "a" }], [{ text: "b" }]],
+      rows: [
+        [[{ text: "1" }], [{ text: "2" }]],
+        [[{ text: "3" }], [{ text: "4" }]],
+      ],
+    },
+  ]);
+  assert.deepEqual(result.warnings, []);
+});
+
+test("markdownToContentNodes strips HTML comments", () => {
+  const result = markdownToContentNodes(
+    "Before.\n\n<!-- TODO image: secret/path.png -->\n\nAfter.",
+  );
+
+  assert.deepEqual(result.nodes, [
+    { type: "paragraph", segments: [{ text: "Before." }] },
+    { type: "paragraph", segments: [{ text: "After." }] },
+  ]);
+});
+
+test("markdownToContentNodes preserves bold, italic, and inline code", () => {
+  const result = markdownToContentNodes(
+    "Status **OPEN** and *maybe* with `code/path.ts` inline.",
+  );
+
+  assert.deepEqual(result.nodes, [
+    {
+      type: "paragraph",
+      segments: [
+        { text: "Status " },
+        { text: "OPEN", annotations: { bold: true } },
+        { text: " and " },
+        { text: "maybe", annotations: { italic: true } },
+        { text: " with " },
+        { text: "code/path.ts", annotations: { code: true } },
+        { text: " inline." },
+      ],
+    },
+  ]);
+});
+
+test("markdownToContentNodes converts marked quotes to callouts", () => {
+  const result = markdownToContentNodes(
+    "> **Warning:** the workspace does not build.\n\n> **Note:** read this first.\n\n> ordinary quote",
+  );
+
+  assert.deepEqual(result.nodes, [
+    {
+      type: "callout",
+      segments: [
+        { text: "Warning:", annotations: { bold: true } },
+        { text: " the workspace does not build." },
+      ],
+      icon: "⚠️",
+      color: "orange_background",
+    },
+    {
+      type: "callout",
+      segments: [
+        { text: "Note:", annotations: { bold: true } },
+        { text: " read this first." },
+      ],
+      icon: "ℹ️",
+      color: "gray_background",
+    },
+    { type: "quote", segments: [{ text: "ordinary quote" }] },
+  ]);
 });
 
 test("markdownToContentNodes preserves inline links", () => {
